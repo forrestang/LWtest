@@ -115,11 +115,15 @@
             <div class="menu-item" data-label="bar-menu" onclick="showChart('bar')">
                 📋 Bar Chart
             </div>
-            <div class="menu-item" data-label="area-menu" onclick="showChart('area')">
-                🌄 Area Chart
-            </div>
             <div class="menu-item" data-label="websocket-toggle" onclick="toggleWebSocket()">
                 🔌 Connect WebSocket
+            </div>
+            <div style="padding: 15px 20px; border-top: 1px solid #34495e;">
+                <div style="color: #bdc3c7; font-size: 14px; margin-bottom: 10px;">Display Mode:</div>
+                <label style="display: flex; align-items: center; margin-bottom: 15px; cursor: pointer;">
+                    <input type="checkbox" id="percentage-checkbox" data-label="percentage-checkbox" onchange="togglePercentageMode()" style="margin-right: 8px;">
+                    <span style="color: #f39c12;">📊 Percentage</span>
+                </label>
             </div>
             <div style="padding: 15px 20px; border-top: 1px solid #34495e;">
                 <div style="color: #bdc3c7; font-size: 14px; margin-bottom: 10px;">Symbols:</div>
@@ -135,45 +139,21 @@
         </nav>
 
         <main class="main-content">
-            <div id="candlestick-chart" class="chart-container" data-label="candlestick-container">
-                <div class="chart-title">Candlestick Chart</div>
-                <div class="chart" data-label="candlestick-chart-area"></div>
+            <div id="main-chart" class="chart-container" data-label="main-container">
+                <div class="chart-title" id="chart-title">Candlestick Chart</div>
+                <div class="chart" data-label="chart-area"></div>
                 <div class="controls">
-                    <button class="btn" data-label="candlestick-reset" onclick="resetChart('candlestick')">Reset Zoom</button>
-                </div>
-            </div>
-
-            <div id="line-chart" class="chart-container" data-label="line-container" style="display: none;">
-                <div class="chart-title">Line Chart</div>
-                <div class="chart" data-label="line-chart-area"></div>
-                <div class="controls">
-                    <button class="btn" data-label="line-reset" onclick="resetChart('line')">Reset Zoom</button>
-                </div>
-            </div>
-
-            <div id="bar-chart" class="chart-container" data-label="bar-container" style="display: none;">
-                <div class="chart-title">Bar Chart</div>
-                <div class="chart" data-label="bar-chart-area"></div>
-                <div class="controls">
-                    <button class="btn" data-label="bar-reset" onclick="resetChart('bar')">Reset Zoom</button>
-                </div>
-            </div>
-
-            <div id="area-chart" class="chart-container" data-label="area-container" style="display: none;">
-                <div class="chart-title">Area Chart</div>
-                <div class="chart" data-label="area-chart-area"></div>
-                <div class="controls">
-                    <button class="btn" data-label="area-reset" onclick="resetChart('area')">Reset Zoom</button>
+                    <button class="btn" data-label="chart-reset" onclick="resetChart()">Reset Zoom</button>
                 </div>
             </div>
         </main>
     </div>
 
     <script>
-        const { createChart, ColorType, CandlestickSeries, LineSeries, AreaSeries, BarSeries } = LightweightCharts;
+        const { createChart, ColorType, CandlestickSeries, LineSeries, BarSeries } = LightweightCharts;
         
         let charts = {};
-        let chartSeries = {};
+        let chartSeries = new Map(); // Use Map for better series management
         let currentChart = 'candlestick';
         let ws = null;
         let isConnected = false;
@@ -186,19 +166,15 @@
             ETH: false
         };
         let activeSymbols = new Set(['BTC']); // Track which symbols are enabled
+        let isPercentageMode = false; // Track percentage mode state
 
 
-        // Initialize charts
+        // Initialize single chart instance
         function initCharts() {
-            // Candlestick Chart
-            const candlestickContainer = document.querySelector('[data-label="candlestick-chart-area"]');
-            
-            // Ensure container is visible before getting dimensions
-            const parentContainer = document.getElementById('candlestick-chart');
-            parentContainer.style.display = 'block';
-            
-            charts.candlestick = createChart(candlestickContainer, {
-                width: candlestickContainer.clientWidth,
+            // Create single chart instance
+            const chartContainer = document.querySelector('[data-label="chart-area"]');
+            const chart = createChart(chartContainer, {
+                width: chartContainer.clientWidth,
                 height: 400,
                 layout: {
                     background: { type: ColorType.Solid, color: 'white' },
@@ -216,160 +192,169 @@
                 },
             });
 
-            // Create series for both BTC and ETH
-            chartSeries.BTC = charts.candlestick.addSeries(CandlestickSeries, {
-                upColor: '#e74c3c',
-                downColor: '#c0392b',
-                borderVisible: false,
-                wickUpColor: '#e74c3c',
-                wickDownColor: '#c0392b',
+            charts.main = chart;
+            console.log('Single chart instance created');
+            
+            // Create initial series based on current chart type
+            createChartSeries();
+        }
+        
+        // Create or update chart series based on current chart type
+        function createChartSeries() {
+            if (!charts.main) return;
+            
+            // Clear existing series
+            chartSeries.forEach((series) => {
+                try {
+                    if (series && charts.main) {
+                        charts.main.removeSeries(series);
+                    }
+                } catch (error) {
+                    console.error('Error removing series:', error);
+                }
+            });
+            chartSeries.clear();
+            
+            // Create new series for each active symbol based on current chart type
+            for (const symbol of activeSymbols) {
+                let series;
+                
+                if (currentChart === 'candlestick') {
+                    series = charts.main.addSeries(CandlestickSeries, {
+                        upColor: symbol === 'BTC' ? '#e74c3c' : '#00bcd4',
+                        downColor: symbol === 'BTC' ? '#c0392b' : '#0097a7',
+                        borderVisible: false,
+                        wickUpColor: symbol === 'BTC' ? '#e74c3c' : '#00bcd4',
+                        wickDownColor: symbol === 'BTC' ? '#c0392b' : '#0097a7',
+                    });
+                } else if (currentChart === 'line') {
+                    series = charts.main.addSeries(LineSeries, {
+                        color: symbol === 'BTC' ? '#e74c3c' : '#00bcd4',
+                        lineWidth: 2,
+                    });
+                } else if (currentChart === 'bar') {
+                    series = charts.main.addSeries(BarSeries, {
+                        upColor: symbol === 'BTC' ? '#e74c3c' : '#00bcd4',
+                        downColor: symbol === 'BTC' ? '#c0392b' : '#0097a7',
+                    });
+                }
+                
+                if (series) {
+                    chartSeries.set(symbol, series);
+                    console.log(`Created ${currentChart} series for ${symbol}`);
+                }
+            }
+            
+            // Update with existing data
+            updateChartData();
+        }
+        
+        // Update chart data for all active series
+        function updateChartData() {
+            if (!charts.main || chartSeries.size === 0) return;
+            
+            chartSeries.forEach((series, symbol) => {
+                if (candleHistory[symbol] && candleHistory[symbol].length > 0) {
+                    let processedData = candleHistory[symbol];
+                    
+                    // Apply percentage transformation if enabled
+                    if (isPercentageMode) {
+                        processedData = convertToPercentage(candleHistory[symbol]);
+                    }
+                    
+                    // Transform to line format if chart type is line
+                    if (currentChart === 'line') {
+                        processedData = processedData.map(candle => ({
+                            time: candle.time,
+                            value: candle.close
+                        }));
+                    }
+                    
+                    // Validate data
+                    let validData;
+                    if (currentChart === 'candlestick' || currentChart === 'bar') {
+                        validData = processedData.filter(candle => 
+                            candle && 
+                            typeof candle.open === 'number' && !isNaN(candle.open) &&
+                            typeof candle.high === 'number' && !isNaN(candle.high) &&
+                            typeof candle.low === 'number' && !isNaN(candle.low) &&
+                            typeof candle.close === 'number' && !isNaN(candle.close)
+                        );
+                    } else {
+                        validData = processedData.filter(point => point && typeof point.value === 'number' && !isNaN(point.value));
+                    }
+                    
+                    console.log(`Setting ${symbol} data for ${currentChart}:`, validData.length, 'points');
+                    series.setData(validData);
+                }
             });
             
-            chartSeries.ETH = charts.candlestick.addSeries(CandlestickSeries, {
-                upColor: '#00bcd4',
-                downColor: '#0097a7',
-                borderVisible: false,
-                wickUpColor: '#00bcd4',
-                wickDownColor: '#0097a7',
-            });
+            // Fit content after data update
+            if (charts.main) {
+                charts.main.timeScale().fitContent();
+            }
+        }
+        
+        // Toggle percentage mode
+        function togglePercentageMode() {
+            const checkbox = document.getElementById('percentage-checkbox');
+            isPercentageMode = checkbox.checked;
+            localStorage.setItem('LWtest_percentageMode', isPercentageMode);
             
-            console.log('BTC and ETH candlestick series created');
-
-            // Line Chart
-            const lineContainer = document.querySelector('[data-label="line-chart-area"]');
-            charts.line = createChart(lineContainer, {
-                width: lineContainer.clientWidth,
-                height: 400,
-                layout: {
-                    background: { type: ColorType.Solid, color: 'white' },
-                    textColor: 'black',
-                },
-                grid: {
-                    vertLines: { color: '#f0f0f0' },
-                    horzLines: { color: '#f0f0f0' },
-                },
-            });
-
-            // Create line series for both symbols
-            chartSeries.BTCLine = charts.line.addSeries(LineSeries, {
-                color: '#e74c3c',
-                lineWidth: 2,
-            });
+            // Update chart data with current mode
+            updateChartData();
+        }
+        
+        // Convert candle data to percentage change from first candle
+        function convertToPercentage(candleData) {
+            if (!candleData || candleData.length === 0) return candleData;
             
-            chartSeries.ETHLine = charts.line.addSeries(LineSeries, {
-                color: '#00bcd4',
-                lineWidth: 2,
-            });
-
-            // Bar Chart
-            const barContainer = document.querySelector('[data-label="bar-chart-area"]');
-            charts.bar = createChart(barContainer, {
-                width: barContainer.clientWidth,
-                height: 400,
-                layout: {
-                    background: { type: ColorType.Solid, color: 'white' },
-                    textColor: 'black',
-                },
-                grid: {
-                    vertLines: { color: '#f0f0f0' },
-                    horzLines: { color: '#f0f0f0' },
-                },
-            });
-
-            // Create bar series for both symbols
-            chartSeries.BTCBar = charts.bar.addSeries(BarSeries, {
-                color: '#e74c3c',
-                base: 0,
-            });
+            const firstCandle = candleData[0];
+            const firstPrice = firstCandle.close;
             
-            chartSeries.ETHBar = charts.bar.addSeries(BarSeries, {
-                color: '#00bcd4',
-                base: 0,
-            });
-
-            // Area Chart
-            const areaContainer = document.querySelector('[data-label="area-chart-area"]');
-            charts.area = createChart(areaContainer, {
-                width: areaContainer.clientWidth,
-                height: 400,
-                layout: {
-                    background: { type: ColorType.Solid, color: 'white' },
-                    textColor: 'black',
-                },
-                grid: {
-                    vertLines: { color: '#f0f0f0' },
-                    horzLines: { color: '#f0f0f0' },
-                },
-            });
-
-            // Create area series for both symbols
-            chartSeries.BTCArea = charts.area.addSeries(AreaSeries, {
-                lineColor: '#e74c3c',
-                topColor: 'rgba(231, 76, 60, 0.4)',
-                bottomColor: 'rgba(231, 76, 60, 0.0)',
-            });
+            return candleData.map(candle => ({
+                time: candle.time,
+                open: ((candle.open - firstPrice) / firstPrice) * 100,
+                high: ((candle.high - firstPrice) / firstPrice) * 100,
+                low: ((candle.low - firstPrice) / firstPrice) * 100,
+                close: ((candle.close - firstPrice) / firstPrice) * 100
+            }));
+        }
+        
+        // Convert line data to percentage change from first value
+        function convertLineToPercentage(lineData) {
+            if (!lineData || lineData.length === 0) return lineData;
             
-            chartSeries.ETHArea = charts.area.addSeries(AreaSeries, {
-                lineColor: '#00bcd4',
-                topColor: 'rgba(0, 188, 212, 0.4)',
-                bottomColor: 'rgba(0, 188, 212, 0.0)',
-            });
-
-            // Save current chart preference
-            localStorage.setItem('LWtest_currentChart', currentChart);
+            const firstValue = lineData[0].value;
+            
+            return lineData.map(point => ({
+                time: point.time,
+                value: ((point.value - firstValue) / firstValue) * 100
+            }));
         }
         
         // Toggle symbol visibility
         function toggleSymbol(symbol) {
-            if (activeSymbols.has(symbol)) {
-                activeSymbols.delete(symbol);
-                console.log('Disabled', symbol);
-                
-                // Hide series for this symbol
-                hideSymbolSeries(symbol);
-                
-                // Disconnect from WebSocket if connected and reconnect with updated symbols
-                if (isConnected) {
-                    disconnectWebSocket();
-                    setTimeout(() => connectWebSocket(), 1000);
-                }
-            } else {
-                activeSymbols.add(symbol);
-                console.log('Enabled', symbol);
-                
-                // Show series for this symbol
-                showSymbolSeries(symbol);
-                
-                // Reconnect WebSocket with new symbol if connected
-                if (isConnected) {
-                    disconnectWebSocket();
-                    setTimeout(() => connectWebSocket(), 1000);
-                }
-            }
-        }
-        
-        // Hide series for a symbol
-        function hideSymbolSeries(symbol) {
-            const seriesToHide = [
-                chartSeries[symbol],
-                chartSeries[symbol + 'Line'],
-                chartSeries[symbol + 'Bar'],  
-                chartSeries[symbol + 'Area']
-            ];
+            const checkbox = document.getElementById(`${symbol.toLowerCase()}-checkbox`);
             
-            seriesToHide.forEach(series => {
-                if (series) {
-                    series.setData([]);
-                }
-            });
-        }
-        
-        // Show series for a symbol (reload data)
-        function showSymbolSeries(symbol) {
-            if (candleHistory[symbol] && candleHistory[symbol].length > 0) {
-                updateChartsForSymbol(symbol);
+            if (checkbox.checked) {
+                activeSymbols.add(symbol);
+                console.log(`${symbol} enabled`);
+            } else {
+                activeSymbols.delete(symbol);
+                console.log(`${symbol} disabled`);
+            }
+            
+            // Recreate series for new active symbols
+            createChartSeries();
+            
+            // Disconnect from WebSocket if connected and reconnect with updated symbols
+            if (isConnected) {
+                disconnectWebSocket();
+                setTimeout(() => connectWebSocket(), 1000);
             }
         }
+        
 
 
         // Fetch historical candle data from Hyperliquid API
@@ -425,7 +410,7 @@
                 console.log(`Formatted ${symbol} historical data:`, candleHistory[symbol].length, 'candles');
                 
                 // Update charts with historical data for this symbol
-                updateChartsForSymbol(symbol);
+                updateChartData();
                 historicalDataLoaded[symbol] = true;
                 
                 return true;
@@ -435,37 +420,6 @@
             }
         }
         
-        // Update charts for a specific symbol
-        function updateChartsForSymbol(symbol) {
-            if (!candleHistory[symbol] || candleHistory[symbol].length === 0) return;
-            
-            console.log(`Updating charts for ${symbol}`);
-            
-            // Update candlestick chart
-            if (chartSeries[symbol]) {
-                chartSeries[symbol].setData(candleHistory[symbol]);
-            }
-            
-            // Update other charts with close prices
-            const lineData = candleHistory[symbol].map(candle => ({
-                time: candle.time,
-                value: candle.close
-            }));
-            
-            if (chartSeries[symbol + 'Line']) {
-                chartSeries[symbol + 'Line'].setData(lineData);
-            }
-            
-            if (chartSeries[symbol + 'Area']) {
-                chartSeries[symbol + 'Area'].setData(lineData);
-            }
-            
-            if (chartSeries[symbol + 'Bar']) {
-                chartSeries[symbol + 'Bar'].setData(lineData);
-            }
-            
-            console.log(`Updated charts with ${symbol} data`);
-        }
 
         // Connect to Hyperliquid WebSocket
         async function connectWebSocket() {
@@ -609,7 +563,7 @@
                         // Update existing candle
                         console.log(`Updating existing ${symbol} candle in history`);
                         candleHistory[symbol][candleHistory[symbol].length - 1] = formattedCandle;
-                        updateChartsForSymbol(symbol);
+                        updateChartData();
                     } else {
                         // Add new candle to history
                         console.log(`Adding new ${symbol} candle to history`);
@@ -620,30 +574,41 @@
                             candleHistory[symbol] = candleHistory[symbol].slice(-250);
                         }
                         
-                        updateChartsForSymbol(symbol);
+                        updateChartData();
                     }
                 } else {
                     // No historical data, just update with live data
                     console.log(`No historical data for ${symbol}, updating with live candle only`);
-                    if (chartSeries[symbol]) {
-                        chartSeries[symbol].update(formattedCandle);
-                    }
                     
-                    const linePoint = {
+                    let candleToUpdate = formattedCandle;
+                    let linePoint = {
                         time: formattedCandle.time,
                         value: formattedCandle.close
                     };
+                    
+                    // Apply percentage transformation if enabled and we have data
+                    if (isPercentageMode && candleHistory[symbol] && candleHistory[symbol].length > 0) {
+                        const firstPrice = candleHistory[symbol][0].close;
+                        candleToUpdate = {
+                            time: formattedCandle.time,
+                            open: ((formattedCandle.open - firstPrice) / firstPrice) * 100,
+                            high: ((formattedCandle.high - firstPrice) / firstPrice) * 100,
+                            low: ((formattedCandle.low - firstPrice) / firstPrice) * 100,
+                            close: ((formattedCandle.close - firstPrice) / firstPrice) * 100
+                        };
+                        linePoint.value = candleToUpdate.close;
+                    }
+                    
+                    if (chartSeries[symbol]) {
+                        chartSeries[symbol].update(candleToUpdate);
+                    }
                     
                     if (chartSeries[symbol + 'Line']) {
                         chartSeries[symbol + 'Line'].update(linePoint);
                     }
                     
-                    if (chartSeries[symbol + 'Area']) {
-                        chartSeries[symbol + 'Area'].update(linePoint);
-                    }
-                    
                     if (chartSeries[symbol + 'Bar']) {
-                        chartSeries[symbol + 'Bar'].update(linePoint);
+                        chartSeries[symbol + 'Bar'].update(candleToUpdate);
                     }
                 }
                 
@@ -710,13 +675,6 @@
                 console.error('Line series not found');
             }
             
-            // Update area chart with close prices
-            if (chartSeries.area) {
-                console.log('Setting area data:', lineData);
-                chartSeries.area.setData(lineData);
-            } else {
-                console.error('Area series not found');
-            }
             
             // Update bar chart with close prices
             if (chartSeries.bar) {
@@ -736,67 +694,60 @@
             });
         }
 
-        // Show specific chart
+
+        // Show specific chart type (now changes series instead of charts)
         function showChart(chartType) {
-            console.log('showChart called with:', chartType);
-            
-            // Hide all charts
-            document.querySelectorAll('.chart-container').forEach(container => {
-                console.log('Hiding container:', container.id);
-                container.style.display = 'none';
-            });
+            console.log('Switching to chart type:', chartType);
             
             // Remove active class from all menu items
             document.querySelectorAll('.menu-item').forEach(item => {
                 item.classList.remove('active');
             });
             
-            // Show selected chart
-            const targetChart = document.getElementById(chartType + '-chart');
-            console.log('Showing chart container:', targetChart);
-            targetChart.style.display = 'block';
+            // Add active class to selected menu item
             document.querySelector(`[data-label="${chartType}-menu"]`).classList.add('active');
             
+            // Update chart title
+            const titles = {
+                'candlestick': 'Candlestick Chart',
+                'line': 'Line Chart',
+                'bar': 'Bar Chart'
+            };
+            document.getElementById('chart-title').textContent = titles[chartType] || 'Chart';
+            
+            // Update current chart type and save preference
             currentChart = chartType;
             localStorage.setItem('LWtest_currentChart', chartType);
             
-            // Resize chart to fit container
-            setTimeout(() => {
-                console.log('Resizing chart:', chartType);
-                if (charts[chartType]) {
-                    console.log('Chart exists, calling resize');
-                    charts[chartType].resize();
-                    
-                    // Check if data still exists after resize
-                    console.log('Checking series after resize:', chartSeries[chartType]);
-                    if (chartSeries[chartType]) {
-                        console.log('Series still exists after resize');
-                    } else {
-                        console.error('Series lost after resize!');
-                    }
-                } else {
-                    console.error('Chart not found for resize:', chartType);
-                }
-            }, 100);
+            // Recreate series for new chart type
+            createChartSeries();
         }
 
         // Reset chart zoom
-        function resetChart(chartType) {
-            if (charts[chartType]) {
-                charts[chartType].timeScale().resetTimeScale();
+        function resetChart() {
+            if (charts.main) {
+                charts.main.timeScale().fitContent();
+                console.log('Chart zoom reset');
             }
         }
 
         // Handle window resize
         window.addEventListener('resize', () => {
-            Object.values(charts).forEach(chart => {
-                chart.resize();
-            });
+            if (charts.main) {
+                charts.main.resize();
+            }
         });
 
         // Load saved chart preference
         document.addEventListener('DOMContentLoaded', () => {
             currentChart = 'candlestick';
+            
+            // Load saved percentage mode preference
+            const savedPercentageMode = localStorage.getItem('LWtest_percentageMode');
+            if (savedPercentageMode === 'true') {
+                isPercentageMode = true;
+                document.getElementById('percentage-checkbox').checked = true;
+            }
             
             console.log('DOM loaded, initializing charts');
             initCharts();
