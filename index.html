@@ -121,6 +121,17 @@
             <div class="menu-item" data-label="websocket-toggle" onclick="toggleWebSocket()">
                 🔌 Connect WebSocket
             </div>
+            <div style="padding: 15px 20px; border-top: 1px solid #34495e;">
+                <div style="color: #bdc3c7; font-size: 14px; margin-bottom: 10px;">Symbols:</div>
+                <label style="display: flex; align-items: center; margin-bottom: 8px; cursor: pointer;">
+                    <input type="checkbox" id="btc-checkbox" data-label="btc-checkbox" checked onchange="toggleSymbol('BTC')" style="margin-right: 8px;">
+                    <span style="color: #e74c3c;">🔴 BTC</span>
+                </label>
+                <label style="display: flex; align-items: center; cursor: pointer;">
+                    <input type="checkbox" id="eth-checkbox" data-label="eth-checkbox" onchange="toggleSymbol('ETH')" style="margin-right: 8px;">
+                    <span style="color: #00bcd4;">🔵 ETH</span>
+                </label>
+            </div>
         </nav>
 
         <main class="main-content">
@@ -166,8 +177,15 @@
         let currentChart = 'candlestick';
         let ws = null;
         let isConnected = false;
-        let candleHistory = [];
-        let historicalDataLoaded = false;
+        let candleHistory = {
+            BTC: [],
+            ETH: []
+        };
+        let historicalDataLoaded = {
+            BTC: false,
+            ETH: false
+        };
+        let activeSymbols = new Set(['BTC']); // Track which symbols are enabled
 
 
         // Initialize charts
@@ -198,14 +216,24 @@
                 },
             });
 
-            chartSeries.candlestick = charts.candlestick.addSeries(CandlestickSeries, {
-                upColor: '#4CAF50',
-                downColor: '#F44336',
+            // Create series for both BTC and ETH
+            chartSeries.BTC = charts.candlestick.addSeries(CandlestickSeries, {
+                upColor: '#e74c3c',
+                downColor: '#c0392b',
                 borderVisible: false,
-                wickUpColor: '#4CAF50',
-                wickDownColor: '#F44336',
+                wickUpColor: '#e74c3c',
+                wickDownColor: '#c0392b',
             });
-            console.log('Candlestick series created:', chartSeries.candlestick);
+            
+            chartSeries.ETH = charts.candlestick.addSeries(CandlestickSeries, {
+                upColor: '#00bcd4',
+                downColor: '#0097a7',
+                borderVisible: false,
+                wickUpColor: '#00bcd4',
+                wickDownColor: '#0097a7',
+            });
+            
+            console.log('BTC and ETH candlestick series created');
 
             // Line Chart
             const lineContainer = document.querySelector('[data-label="line-chart-area"]');
@@ -222,8 +250,14 @@
                 },
             });
 
-            chartSeries.line = charts.line.addSeries(LineSeries, {
-                color: '#2196F3',
+            // Create line series for both symbols
+            chartSeries.BTCLine = charts.line.addSeries(LineSeries, {
+                color: '#e74c3c',
+                lineWidth: 2,
+            });
+            
+            chartSeries.ETHLine = charts.line.addSeries(LineSeries, {
+                color: '#00bcd4',
                 lineWidth: 2,
             });
 
@@ -242,8 +276,14 @@
                 },
             });
 
-            chartSeries.bar = charts.bar.addSeries(BarSeries, {
-                color: '#FF9800',
+            // Create bar series for both symbols
+            chartSeries.BTCBar = charts.bar.addSeries(BarSeries, {
+                color: '#e74c3c',
+                base: 0,
+            });
+            
+            chartSeries.ETHBar = charts.bar.addSeries(BarSeries, {
+                color: '#00bcd4',
                 base: 0,
             });
 
@@ -262,21 +302,93 @@
                 },
             });
 
-            chartSeries.area = charts.area.addSeries(AreaSeries, {
-                lineColor: '#9C27B0',
-                topColor: 'rgba(156, 39, 176, 0.4)',
-                bottomColor: 'rgba(156, 39, 176, 0.0)',
+            // Create area series for both symbols
+            chartSeries.BTCArea = charts.area.addSeries(AreaSeries, {
+                lineColor: '#e74c3c',
+                topColor: 'rgba(231, 76, 60, 0.4)',
+                bottomColor: 'rgba(231, 76, 60, 0.0)',
+            });
+            
+            chartSeries.ETHArea = charts.area.addSeries(AreaSeries, {
+                lineColor: '#00bcd4',
+                topColor: 'rgba(0, 188, 212, 0.4)',
+                bottomColor: 'rgba(0, 188, 212, 0.0)',
             });
 
             // Save current chart preference
             localStorage.setItem('LWtest_currentChart', currentChart);
         }
+        
+        // Toggle symbol visibility
+        function toggleSymbol(symbol) {
+            if (activeSymbols.has(symbol)) {
+                activeSymbols.delete(symbol);
+                console.log('Disabled', symbol);
+                
+                // Hide series for this symbol
+                hideSymbolSeries(symbol);
+                
+                // Disconnect from WebSocket if connected and reconnect with updated symbols
+                if (isConnected) {
+                    disconnectWebSocket();
+                    setTimeout(() => connectWebSocket(), 1000);
+                }
+            } else {
+                activeSymbols.add(symbol);
+                console.log('Enabled', symbol);
+                
+                // Show series for this symbol
+                showSymbolSeries(symbol);
+                
+                // Reconnect WebSocket with new symbol if connected
+                if (isConnected) {
+                    disconnectWebSocket();
+                    setTimeout(() => connectWebSocket(), 1000);
+                }
+            }
+        }
+        
+        // Hide series for a symbol
+        function hideSymbolSeries(symbol) {
+            const seriesToHide = [
+                chartSeries[symbol],
+                chartSeries[symbol + 'Line'],
+                chartSeries[symbol + 'Bar'],  
+                chartSeries[symbol + 'Area']
+            ];
+            
+            seriesToHide.forEach(series => {
+                if (series) {
+                    series.setData([]);
+                }
+            });
+        }
+        
+        // Show series for a symbol (reload data)
+        function showSymbolSeries(symbol) {
+            if (candleHistory[symbol] && candleHistory[symbol].length > 0) {
+                updateChartsForSymbol(symbol);
+            }
+        }
 
 
         // Fetch historical candle data from Hyperliquid API
         async function fetchHistoricalData() {
+            const promises = [];
+            
+            // Fetch data for all active symbols
+            for (const symbol of activeSymbols) {
+                promises.push(fetchHistoricalDataForSymbol(symbol));
+            }
+            
+            const results = await Promise.all(promises);
+            return results.every(result => result === true);
+        }
+        
+        // Fetch historical data for a specific symbol
+        async function fetchHistoricalDataForSymbol(symbol) {
             try {
-                console.log('Fetching historical BTC 5m candle data...');
+                console.log(`Fetching historical ${symbol} 5m candle data...`);
                 
                 const endTime = Date.now();
                 // Get 250 candles * 5 minutes = 1250 minutes = ~21 hours of data
@@ -290,7 +402,7 @@
                     body: JSON.stringify({
                         type: "candleSnapshot",
                         req: {
-                            coin: "BTC",
+                            coin: symbol,
                             interval: "5m",
                             startTime: startTime,
                             endTime: endTime
@@ -299,10 +411,10 @@
                 });
                 
                 const data = await response.json();
-                console.log('Historical data received:', data.length, 'candles');
+                console.log(`${symbol} historical data received:`, data.length, 'candles');
                 
                 // Convert to Lightweight Charts format
-                candleHistory = data.map(candle => ({
+                candleHistory[symbol] = data.map(candle => ({
                     time: Math.floor(candle.t / 1000), // Convert to seconds
                     open: parseFloat(candle.o),
                     high: parseFloat(candle.h),
@@ -310,47 +422,49 @@
                     close: parseFloat(candle.c)
                 })).sort((a, b) => a.time - b.time);
                 
-                console.log('Formatted historical data:', candleHistory.length, 'candles');
+                console.log(`Formatted ${symbol} historical data:`, candleHistory[symbol].length, 'candles');
                 
-                // Update charts with historical data
-                updateChartsWithHistoricalData();
-                historicalDataLoaded = true;
+                // Update charts with historical data for this symbol
+                updateChartsForSymbol(symbol);
+                historicalDataLoaded[symbol] = true;
                 
                 return true;
             } catch (error) {
-                console.error('Error fetching historical data:', error);
+                console.error(`Error fetching ${symbol} historical data:`, error);
                 return false;
             }
         }
         
-        // Update charts with historical data
-        function updateChartsWithHistoricalData() {
-            if (candleHistory.length === 0) return;
+        // Update charts for a specific symbol
+        function updateChartsForSymbol(symbol) {
+            if (!candleHistory[symbol] || candleHistory[symbol].length === 0) return;
+            
+            console.log(`Updating charts for ${symbol}`);
             
             // Update candlestick chart
-            if (chartSeries.candlestick) {
-                chartSeries.candlestick.setData(candleHistory);
+            if (chartSeries[symbol]) {
+                chartSeries[symbol].setData(candleHistory[symbol]);
             }
             
             // Update other charts with close prices
-            const lineData = candleHistory.map(candle => ({
+            const lineData = candleHistory[symbol].map(candle => ({
                 time: candle.time,
                 value: candle.close
             }));
             
-            if (chartSeries.line) {
-                chartSeries.line.setData(lineData);
+            if (chartSeries[symbol + 'Line']) {
+                chartSeries[symbol + 'Line'].setData(lineData);
             }
             
-            if (chartSeries.area) {
-                chartSeries.area.setData(lineData);
+            if (chartSeries[symbol + 'Area']) {
+                chartSeries[symbol + 'Area'].setData(lineData);
             }
             
-            if (chartSeries.bar) {
-                chartSeries.bar.setData(lineData);
+            if (chartSeries[symbol + 'Bar']) {
+                chartSeries[symbol + 'Bar'].setData(lineData);
             }
             
-            console.log('Updated charts with historical data');
+            console.log(`Updated charts with ${symbol} data`);
         }
 
         // Connect to Hyperliquid WebSocket
@@ -373,17 +487,20 @@
                 isConnected = true;
                 updateWebSocketButton();
                 
-                // Subscribe to BTC perpetual 5m candlestick data
-                const subscription = {
-                    method: "subscribe",
-                    subscription: {
-                        type: "candle",
-                        coin: "BTC",
-                        interval: "5m"
-                    }
-                };
-                
-                ws.send(JSON.stringify(subscription));
+                // Subscribe to candle data for all active symbols
+                for (const symbol of activeSymbols) {
+                    const subscription = {
+                        method: "subscribe",
+                        subscription: {
+                            type: "candle",
+                            coin: symbol,
+                            interval: "5m"
+                        }
+                    };
+                    
+                    console.log(`Subscribing to ${symbol} candle data`);
+                    ws.send(JSON.stringify(subscription));
+                }
             };
             
             ws.onmessage = function(event) {
@@ -454,7 +571,15 @@
             console.log('Handling live candle data:', candleData);
             
             // Handle single candle object
-            if (typeof candleData === 'object' && candleData.t) {
+            if (typeof candleData === 'object' && candleData.t && candleData.s) {
+                const symbol = candleData.s; // Get symbol from candle data
+                
+                // Only process if this symbol is active
+                if (!activeSymbols.has(symbol)) {
+                    console.log(`Ignoring candle for inactive symbol: ${symbol}`);
+                    return;
+                }
+                
                 const formattedCandle = {
                     time: Math.floor(candleData.t / 1000), // Convert milliseconds to seconds
                     open: parseFloat(candleData.o),
@@ -463,46 +588,45 @@
                     close: parseFloat(candleData.c)
                 };
                 
-                console.log('Formatted live candle:', formattedCandle);
+                console.log(`Formatted live ${symbol} candle:`, formattedCandle);
                 
                 // Check for gaps between historical and live data
-                if (historicalDataLoaded && candleHistory.length > 0) {
-                    const lastHistoricalCandle = candleHistory[candleHistory.length - 1];
+                if (historicalDataLoaded[symbol] && candleHistory[symbol] && candleHistory[symbol].length > 0) {
+                    const lastHistoricalCandle = candleHistory[symbol][candleHistory[symbol].length - 1];
                     const timeDifference = formattedCandle.time - lastHistoricalCandle.time;
                     const expectedInterval = 5 * 60; // 5 minutes in seconds
                     
-                    console.log('Time difference between last historical and live:', timeDifference, 'seconds');
-                    console.log('Expected interval:', expectedInterval, 'seconds');
+                    console.log(`${symbol} time difference between last historical and live:`, timeDifference, 'seconds');
                     
                     // If there's a gap, bridge it
                     if (timeDifference > expectedInterval) {
-                        console.log('Gap detected between historical and live data');
-                        bridgeDataGap(lastHistoricalCandle, formattedCandle);
+                        console.log(`Gap detected between historical and live data for ${symbol}`);
+                        bridgeDataGap(symbol, lastHistoricalCandle, formattedCandle);
                     }
                     
                     // Check if this candle should update the last historical candle or add a new one
                     if (formattedCandle.time === lastHistoricalCandle.time) {
                         // Update existing candle
-                        console.log('Updating existing candle in history');
-                        candleHistory[candleHistory.length - 1] = formattedCandle;
-                        updateChartsWithHistoricalData();
+                        console.log(`Updating existing ${symbol} candle in history`);
+                        candleHistory[symbol][candleHistory[symbol].length - 1] = formattedCandle;
+                        updateChartsForSymbol(symbol);
                     } else {
                         // Add new candle to history
-                        console.log('Adding new candle to history');
-                        candleHistory.push(formattedCandle);
+                        console.log(`Adding new ${symbol} candle to history`);
+                        candleHistory[symbol].push(formattedCandle);
                         
                         // Keep only last 250 candles
-                        if (candleHistory.length > 250) {
-                            candleHistory = candleHistory.slice(-250);
+                        if (candleHistory[symbol].length > 250) {
+                            candleHistory[symbol] = candleHistory[symbol].slice(-250);
                         }
                         
-                        updateChartsWithHistoricalData();
+                        updateChartsForSymbol(symbol);
                     }
                 } else {
                     // No historical data, just update with live data
-                    console.log('No historical data, updating with live candle only');
-                    if (chartSeries.candlestick) {
-                        chartSeries.candlestick.update(formattedCandle);
+                    console.log(`No historical data for ${symbol}, updating with live candle only`);
+                    if (chartSeries[symbol]) {
+                        chartSeries[symbol].update(formattedCandle);
                     }
                     
                     const linePoint = {
@@ -510,16 +634,16 @@
                         value: formattedCandle.close
                     };
                     
-                    if (chartSeries.line) {
-                        chartSeries.line.update(linePoint);
+                    if (chartSeries[symbol + 'Line']) {
+                        chartSeries[symbol + 'Line'].update(linePoint);
                     }
                     
-                    if (chartSeries.area) {
-                        chartSeries.area.update(linePoint);
+                    if (chartSeries[symbol + 'Area']) {
+                        chartSeries[symbol + 'Area'].update(linePoint);
                     }
                     
-                    if (chartSeries.bar) {
-                        chartSeries.bar.update(linePoint);
+                    if (chartSeries[symbol + 'Bar']) {
+                        chartSeries[symbol + 'Bar'].update(linePoint);
                     }
                 }
                 
@@ -530,8 +654,8 @@
         }
         
         // Bridge gap between historical and live data
-        function bridgeDataGap(lastHistoricalCandle, firstLiveCandle) {
-            console.log('Bridging data gap from', lastHistoricalCandle.time, 'to', firstLiveCandle.time);
+        function bridgeDataGap(symbol, lastHistoricalCandle, firstLiveCandle) {
+            console.log(`Bridging ${symbol} data gap from`, lastHistoricalCandle.time, 'to', firstLiveCandle.time);
             
             const interval = 5 * 60; // 5 minutes in seconds
             const gapCandles = [];
@@ -548,14 +672,14 @@
                     close: lastHistoricalCandle.close
                 };
                 
-                console.log('Created bridge candle:', bridgeCandle);
+                console.log(`Created ${symbol} bridge candle:`, bridgeCandle);
                 gapCandles.push(bridgeCandle);
                 currentTime += interval;
             }
             
             // Add bridge candles to history
-            candleHistory = candleHistory.concat(gapCandles);
-            console.log('Added', gapCandles.length, 'bridge candles');
+            candleHistory[symbol] = candleHistory[symbol].concat(gapCandles);
+            console.log(`Added ${gapCandles.length} bridge candles for ${symbol}`);
         }
         
         // Update all charts with current candle history
