@@ -1,0 +1,19 @@
+index.html:574 DOM loaded, initializing charts
+index.html:207 Candlestick series created: zn {Mg: o, Jn: Ut, bg: Wn, xg: Wn, o_: Ji, …}
+index.html:286 Setting simple test data: (3) [{…}, {…}, {…}]
+index.html:290 Container dimensions: {width: 798, height: 400, offsetWidth: 798, offsetHeight: 400}
+index.html:299 Setting candlestick test data
+index.html:576 Charts initialized, showing chart: bar
+index.html:511 showChart called with: bar
+index.html:515 Hiding container: candlestick-chart
+index.html:515 Hiding container: line-chart
+index.html:515 Hiding container: bar-chart
+index.html:515 Hiding container: area-chart
+index.html:526 Showing chart container: <div id=​"bar-chart" class=​"chart-container" data-label=​"bar-container" style=​"display:​ block;​">​…​</div>​
+index.html:578 showChart completed
+index.html:305 Fitting content to chart
+index.html:309 Chart created with dimensions: {width: 798, height: 400}
+index.html:535 Resizing chart: bar
+index.html:537 Chart exists, calling resize
+index.html:541 Checking series after resize: zn {Mg: o, Jn: Ut, bg: Wn, xg: Wn, o_: Ji, …}
+index.html:543 Series still exists after resize
