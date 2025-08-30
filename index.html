@@ -382,6 +382,20 @@
             
             // Update chart data with current mode
             updateChartData();
+            
+            // When switching percentage modes, we need to let the price scale auto-fit
+            // to the new data range, then reapply autoScale: false
+            setTimeout(() => {
+                if (charts.main) {
+                    // Temporarily allow auto-scaling to fit new data range
+                    charts.main.priceScale('right').applyOptions({ autoScale: true });
+                    
+                    // Then disable it again after the scale adjusts
+                    setTimeout(() => {
+                        charts.main.priceScale('right').applyOptions({ autoScale: false });
+                    }, 100);
+                }
+            }, 50);
         }
         
         // Convert candle data to percentage change from first candle
