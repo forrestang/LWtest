@@ -168,6 +168,65 @@
         };
         let activeSymbols = new Set(['BTC']); // Track which symbols are enabled
         let isPercentageMode = false; // Track percentage mode state
+        
+        // Scale state preservation for preventing autoscaling during chart type changes
+        function captureScaleState() {
+            if (!charts.main) return null;
+            
+            try {
+                const timeScale = charts.main.timeScale();
+                const priceScale = charts.main.priceScale('right');
+                
+                // Capture both visible range and logical range for precise positioning
+                const visibleLogicalRange = timeScale.getVisibleLogicalRange();
+                const visibleRange = timeScale.getVisibleRange();
+                const priceRange = priceScale.getVisibleRange();
+                
+                return {
+                    visibleLogicalRange,
+                    visibleRange,
+                    priceRange
+                };
+            } catch (error) {
+                console.log('Could not capture scale state:', error);
+                return null;
+            }
+        }
+        
+        function restoreScaleState(scaleState) {
+            if (!charts.main || !scaleState) return;
+            
+            try {
+                const timeScale = charts.main.timeScale();
+                const priceScale = charts.main.priceScale('right');
+                
+                // Try to restore logical range first (preserves exact positioning and margins)
+                if (scaleState.visibleLogicalRange) {
+                    timeScale.setVisibleLogicalRange(scaleState.visibleLogicalRange);
+                } else if (scaleState.visibleRange) {
+                    // Fallback to visible range
+                    timeScale.setVisibleRange(scaleState.visibleRange);
+                }
+                
+                // Restore price range  
+                if (scaleState.priceRange) {
+                    priceScale.setVisibleRange(scaleState.priceRange);
+                }
+                
+                console.log('Scale state restored with logical range preservation');
+            } catch (error) {
+                console.log('Could not restore scale state:', error);
+                // Try fallback approach
+                try {
+                    if (scaleState.visibleRange) {
+                        const timeScale = charts.main.timeScale();
+                        timeScale.setVisibleRange(scaleState.visibleRange);
+                    }
+                } catch (fallbackError) {
+                    console.log('Fallback scale restoration also failed:', fallbackError);
+                }
+            }
+        }
 
 
         // Initialize single chart instance
@@ -210,6 +269,9 @@
         // Create or update chart series based on current chart type
         function createChartSeries() {
             if (!charts.main) return;
+            
+            // Capture current scale state before recreating series
+            const scaleState = captureScaleState();
             
             // Clear existing series
             chartSeries.forEach((series) => {
@@ -257,8 +319,18 @@
                 }
             }
             
+            // Reapply autoScale: false after series creation
+            charts.main.priceScale('right').applyOptions({
+                autoScale: false
+            });
+            
             // Update with existing data
             updateChartData();
+            
+            // Restore scale state after data is updated
+            setTimeout(() => {
+                restoreScaleState(scaleState);
+            }, 50);
         }
         
         // Update chart data for all active series
@@ -384,6 +456,8 @@
             if (charts.main) {
                 setTimeout(() => {
                     charts.main.timeScale().fitContent();
+                    // Reapply autoScale: false after fitContent
+                    charts.main.priceScale('right').applyOptions({ autoScale: false });
                 }, 100);
             }
         }
@@ -815,6 +889,8 @@
         function resetChart() {
             if (charts.main) {
                 charts.main.timeScale().fitContent();
+                // Reapply autoScale: false after fitContent
+                charts.main.priceScale('right').applyOptions({ autoScale: false });
                 console.log('Chart zoom reset');
             }
         }
