@@ -149,6 +149,7 @@
         </main>
     </div>
 
+
     <script>
         const { createChart, ColorType, CandlestickSeries, LineSeries, BarSeries } = LightweightCharts;
         
@@ -189,10 +190,17 @@
                 },
                 rightPriceScale: {
                     borderColor: '#ccc',
+                    autoScale: false,
                 },
             });
 
             charts.main = chart;
+            
+            // Apply autoScale: false using applyOptions method
+            charts.main.priceScale('right').applyOptions({
+                autoScale: false
+            });
+            
             console.log('Single chart instance created');
             
             // Create initial series based on current chart type
@@ -215,33 +223,37 @@
             });
             chartSeries.clear();
             
-            // Create new series for each active symbol based on current chart type
-            for (const symbol of activeSymbols) {
+            // Create series for ALL symbols (BTC and ETH) with transparent colors for inactive ones
+            const allSymbols = ['BTC', 'ETH'];
+            
+            for (const symbol of allSymbols) {
                 let series;
+                const isActive = activeSymbols.has(symbol);
+                const transparentColor = 'rgba(0,0,0,0)';
                 
                 if (currentChart === 'candlestick') {
                     series = charts.main.addSeries(CandlestickSeries, {
-                        upColor: symbol === 'BTC' ? '#e74c3c' : '#00bcd4',
-                        downColor: symbol === 'BTC' ? '#c0392b' : '#0097a7',
+                        upColor: isActive ? (symbol === 'BTC' ? '#e74c3c' : '#00bcd4') : transparentColor,
+                        downColor: isActive ? (symbol === 'BTC' ? '#c0392b' : '#0097a7') : transparentColor,
                         borderVisible: false,
-                        wickUpColor: symbol === 'BTC' ? '#e74c3c' : '#00bcd4',
-                        wickDownColor: symbol === 'BTC' ? '#c0392b' : '#0097a7',
+                        wickUpColor: isActive ? (symbol === 'BTC' ? '#e74c3c' : '#00bcd4') : transparentColor,
+                        wickDownColor: isActive ? (symbol === 'BTC' ? '#c0392b' : '#0097a7') : transparentColor,
                     });
                 } else if (currentChart === 'line') {
                     series = charts.main.addSeries(LineSeries, {
-                        color: symbol === 'BTC' ? '#e74c3c' : '#00bcd4',
+                        color: isActive ? (symbol === 'BTC' ? '#e74c3c' : '#00bcd4') : transparentColor,
                         lineWidth: 2,
                     });
                 } else if (currentChart === 'bar') {
                     series = charts.main.addSeries(BarSeries, {
-                        upColor: symbol === 'BTC' ? '#e74c3c' : '#00bcd4',
-                        downColor: symbol === 'BTC' ? '#c0392b' : '#0097a7',
+                        upColor: isActive ? (symbol === 'BTC' ? '#e74c3c' : '#00bcd4') : transparentColor,
+                        downColor: isActive ? (symbol === 'BTC' ? '#c0392b' : '#0097a7') : transparentColor,
                     });
                 }
                 
                 if (series) {
                     chartSeries.set(symbol, series);
-                    console.log(`Created ${currentChart} series for ${symbol}`);
+                    console.log(`Created ${currentChart} series for ${symbol} (active: ${isActive})`);
                 }
             }
             
@@ -288,11 +300,6 @@
                     series.setData(validData);
                 }
             });
-            
-            // Fit content after data update
-            if (charts.main) {
-                charts.main.timeScale().fitContent();
-            }
         }
         
         // Toggle percentage mode
@@ -332,6 +339,54 @@
                 value: ((point.value - firstValue) / firstValue) * 100
             }));
         }
+
+        // Load sample data for initial chart display  
+        function loadInitialSampleData() {
+            console.log('Loading sample data for initial display');
+            const now = Math.floor(Date.now() / 1000);
+            
+            // Create sample data for both BTC and ETH
+            const symbols = [
+                { name: 'BTC', basePrice: 100000 },
+                { name: 'ETH', basePrice: 3000 }
+            ];
+            
+            symbols.forEach(({ name, basePrice }) => {
+                candleHistory[name] = [];
+                
+                for (let i = 0; i < 100; i++) {
+                    const time = now - (100 - i) * 300; // 5 minute intervals, going back ~8 hours
+                    const priceVariation = basePrice * 0.02; // 2% price variation
+                    const centerPrice = basePrice + (Math.sin(i * 0.1) * priceVariation);
+                    
+                    const open = centerPrice + (Math.random() - 0.5) * priceVariation * 0.5;
+                    const close = centerPrice + (Math.random() - 0.5) * priceVariation * 0.5;
+                    const high = Math.max(open, close) + Math.random() * priceVariation * 0.3;
+                    const low = Math.min(open, close) - Math.random() * priceVariation * 0.3;
+                    
+                    candleHistory[name].push({
+                        time: time,
+                        open: parseFloat(open.toFixed(2)),
+                        high: parseFloat(high.toFixed(2)),
+                        low: parseFloat(low.toFixed(2)),
+                        close: parseFloat(close.toFixed(2))
+                    });
+                }
+                
+                console.log(`Created sample ${name} data:`, candleHistory[name].length, 'candles');
+                historicalDataLoaded[name] = true;
+            });
+            
+            // Update chart with sample data
+            updateChartData();
+            
+            // Fit content and ensure price scale is visible
+            if (charts.main) {
+                setTimeout(() => {
+                    charts.main.timeScale().fitContent();
+                }, 100);
+            }
+        }
         
         // Toggle symbol visibility
         function toggleSymbol(symbol) {
@@ -345,13 +400,35 @@
                 console.log(`${symbol} disabled`);
             }
             
-            // Recreate series for new active symbols
-            createChartSeries();
-            
-            // Disconnect from WebSocket if connected and reconnect with updated symbols
-            if (isConnected) {
-                disconnectWebSocket();
-                setTimeout(() => connectWebSocket(), 1000);
+            // Update series colors instead of recreating
+            if (chartSeries.has(symbol)) {
+                const series = chartSeries.get(symbol);
+                const isActive = activeSymbols.has(symbol);
+                const transparentColor = 'rgba(0,0,0,0)';
+                
+                if (currentChart === 'candlestick') {
+                    series.applyOptions({
+                        upColor: isActive ? (symbol === 'BTC' ? '#e74c3c' : '#00bcd4') : transparentColor,
+                        downColor: isActive ? (symbol === 'BTC' ? '#c0392b' : '#0097a7') : transparentColor,
+                        wickUpColor: isActive ? (symbol === 'BTC' ? '#e74c3c' : '#00bcd4') : transparentColor,
+                        wickDownColor: isActive ? (symbol === 'BTC' ? '#c0392b' : '#0097a7') : transparentColor,
+                    });
+                } else if (currentChart === 'line') {
+                    series.applyOptions({
+                        color: isActive ? (symbol === 'BTC' ? '#e74c3c' : '#00bcd4') : transparentColor,
+                    });
+                } else if (currentChart === 'bar') {
+                    series.applyOptions({
+                        upColor: isActive ? (symbol === 'BTC' ? '#e74c3c' : '#00bcd4') : transparentColor,
+                        downColor: isActive ? (symbol === 'BTC' ? '#c0392b' : '#0097a7') : transparentColor,
+                    });
+                }
+                
+                console.log(`${symbol} series colors updated (active: ${isActive})`);
+            } else {
+                // If series doesn't exist yet, recreate all series
+                console.log(`${symbol} series not found, recreating all series`);
+                createChartSeries();
             }
         }
         
@@ -361,13 +438,22 @@
         async function fetchHistoricalData() {
             const promises = [];
             
-            // Fetch data for all active symbols
-            for (const symbol of activeSymbols) {
+            // Fetch data for ALL symbols (both BTC and ETH) so they can be toggled
+            const allSymbols = ['BTC', 'ETH'];
+            for (const symbol of allSymbols) {
                 promises.push(fetchHistoricalDataForSymbol(symbol));
             }
             
             const results = await Promise.all(promises);
-            return results.every(result => result === true);
+            const allLoaded = results.every(result => result === true);
+            
+            // Force series recreation after initial data load to ensure proper display
+            if (allLoaded) {
+                console.log('All historical data loaded, recreating series to ensure proper display');
+                createChartSeries();
+            }
+            
+            return allLoaded;
         }
         
         // Fetch historical data for a specific symbol
@@ -398,6 +484,7 @@
                 const data = await response.json();
                 console.log(`${symbol} historical data received:`, data.length, 'candles');
                 
+                
                 // Convert to Lightweight Charts format
                 candleHistory[symbol] = data.map(candle => ({
                     time: Math.floor(candle.t / 1000), // Convert to seconds
@@ -411,6 +498,14 @@
                 
                 // Update charts with historical data for this symbol
                 updateChartData();
+                
+                // Fit content only on initial data load
+                if (charts.main) {
+                    charts.main.timeScale().fitContent();
+                    // Re-apply autoScale: false after fitting content
+                    charts.main.priceScale('right').applyOptions({ autoScale: false });
+                }
+                
                 historicalDataLoaded[symbol] = true;
                 
                 return true;
@@ -685,13 +780,6 @@
             }
             
             console.log(`Updated charts with ${candleHistory.length} candles`);
-            
-            // Force chart resize to ensure visibility
-            Object.values(charts).forEach(chart => {
-                if (chart) {
-                    chart.timeScale().fitContent();
-                }
-            });
         }
 
 
@@ -731,6 +819,7 @@
             }
         }
 
+
         // Handle window resize
         window.addEventListener('resize', () => {
             if (charts.main) {
@@ -751,9 +840,11 @@
             
             console.log('DOM loaded, initializing charts');
             initCharts();
-            console.log('Charts initialized, skipping showChart call');
             
-            // Don't call showChart - leave the chart as initialized
+            // Load sample data for initial display
+            loadInitialSampleData();
+            
+            console.log('Charts initialized with sample data. Click "Connect WebSocket" to load real data.');
         });
     </script>
 </body>
