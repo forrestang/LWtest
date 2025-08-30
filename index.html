@@ -124,6 +124,10 @@
                     <input type="checkbox" id="percentage-checkbox" data-label="percentage-checkbox" onchange="togglePercentageMode()" style="margin-right: 8px;">
                     <span style="color: #f39c12;">📊 Percentage</span>
                 </label>
+                <label style="display: flex; align-items: center; margin-bottom: 15px; cursor: pointer;">
+                    <input type="checkbox" id="vwap-checkbox" data-label="vwap-checkbox" onchange="toggleVWAP()" style="margin-right: 8px;">
+                    <span style="color: #ff9500;">📈 VWAP</span>
+                </label>
             </div>
             <div style="padding: 15px 20px; border-top: 1px solid #34495e;">
                 <div style="color: #bdc3c7; font-size: 14px; margin-bottom: 10px;">Symbols:</div>
@@ -168,6 +172,67 @@
         };
         let activeSymbols = new Set(['BTC']); // Track which symbols are enabled
         let isPercentageMode = false; // Track percentage mode state
+        let isVWAPEnabled = false; // Track VWAP indicator state
+        let vwapSeries = null; // Reference to VWAP series
+        
+        // Calculate VWAP center line for visible tokens (following statisticalBands.ts methodology)
+        function calculateVWAP() {
+            if (!candleHistory || activeSymbols.size === 0) return [];
+            
+            // Group data by timestamp (like statisticalBands.ts does)
+            const dataByTimestamp = new Map();
+            const activeSymbolsArray = Array.from(activeSymbols);
+            
+            activeSymbolsArray.forEach(symbol => {
+                if (candleHistory[symbol]) {
+                    candleHistory[symbol].forEach(candle => {
+                        if (!dataByTimestamp.has(candle.time)) {
+                            dataByTimestamp.set(candle.time, []);
+                        }
+                        dataByTimestamp.get(candle.time).push(candle);
+                    });
+                }
+            });
+            
+            // Get sorted timestamps for chronological processing
+            const sortedTimestamps = Array.from(dataByTimestamp.keys()).sort((a, b) => a - b);
+            
+            if (sortedTimestamps.length === 0) {
+                return [];
+            }
+            
+            const vwapPoints = [];
+            const cumulativeGroupTPs = [];
+            
+            // Calculate VWAP-style bands following statisticalBands.ts methodology
+            sortedTimestamps.forEach(timestamp => {
+                const timestampData = dataByTimestamp.get(timestamp);
+                
+                // Step 1: Calculate Group Typical Price at this timestamp
+                const tokenTPs = timestampData.map(d => (d.high + d.low + d.close) / 3);
+                const groupTP = tokenTPs.reduce((sum, tp) => sum + tp, 0) / tokenTPs.length;
+                
+                // Step 2: Add to cumulative array and calculate Group_MVWAP
+                cumulativeGroupTPs.push(groupTP);
+                const groupMVWAP = cumulativeGroupTPs.reduce((sum, tp) => sum + tp, 0) / cumulativeGroupTPs.length;
+                
+                vwapPoints.push({
+                    time: timestamp,
+                    value: groupMVWAP
+                });
+            });
+            
+            // Apply percentage transformation if enabled
+            if (isPercentageMode && vwapPoints.length > 0) {
+                const firstVWAP = vwapPoints[0].value;
+                return vwapPoints.map(point => ({
+                    time: point.time,
+                    value: ((point.value - firstVWAP) / firstVWAP) * 100
+                }));
+            }
+            
+            return vwapPoints;
+        }
         
         // Scale state preservation for preventing autoscaling during chart type changes
         function captureScaleState() {
@@ -319,6 +384,28 @@
                 }
             }
             
+            // Create VWAP series if enabled
+            if (vwapSeries) {
+                try {
+                    charts.main.removeSeries(vwapSeries);
+                } catch (error) {
+                    console.error('Error removing VWAP series:', error);
+                }
+                vwapSeries = null;
+            }
+            
+            if (isVWAPEnabled) {
+                const transparentColor = 'rgba(0,0,0,0)';
+                vwapSeries = charts.main.addSeries(LineSeries, {
+                    color: isVWAPEnabled ? '#ff9500' : transparentColor, // Orange color for VWAP
+                    lineWidth: 2,
+                    lineStyle: 2, // Dashed line
+                    lastValueVisible: false,
+                    priceLineVisible: false,
+                });
+                console.log('Created VWAP series');
+            }
+            
             // Reapply autoScale: false after series creation
             charts.main.priceScale('right').applyOptions({
                 autoScale: false
@@ -372,6 +459,15 @@
                     series.setData(validData);
                 }
             });
+            
+            // Update VWAP series if enabled
+            if (isVWAPEnabled && vwapSeries) {
+                const vwapData = calculateVWAP();
+                if (vwapData.length > 0) {
+                    vwapSeries.setData(vwapData);
+                    console.log(`Setting VWAP data:`, vwapData.length, 'points');
+                }
+            }
         }
         
         // Toggle percentage mode
@@ -396,6 +492,18 @@
                     }, 100);
                 }
             }, 50);
+        }
+        
+        // Toggle VWAP indicator
+        function toggleVWAP() {
+            const checkbox = document.getElementById('vwap-checkbox');
+            isVWAPEnabled = checkbox.checked;
+            localStorage.setItem('LWtest_vwapEnabled', isVWAPEnabled);
+            
+            console.log('VWAP toggled:', isVWAPEnabled);
+            
+            // Recreate series to show/hide VWAP
+            createChartSeries();
         }
         
         // Convert candle data to percentage change from first candle
@@ -513,6 +621,15 @@
                 }
                 
                 console.log(`${symbol} series colors updated (active: ${isActive})`);
+                
+                // Update VWAP calculation since visible tokens changed
+                if (isVWAPEnabled && vwapSeries) {
+                    const vwapData = calculateVWAP();
+                    if (vwapData.length > 0) {
+                        vwapSeries.setData(vwapData);
+                        console.log(`Updated VWAP data after ${symbol} toggle`);
+                    }
+                }
             } else {
                 // If series doesn't exist yet, recreate all series
                 console.log(`${symbol} series not found, recreating all series`);
@@ -926,6 +1043,13 @@
             if (savedPercentageMode === 'true') {
                 isPercentageMode = true;
                 document.getElementById('percentage-checkbox').checked = true;
+            }
+            
+            // Load saved VWAP preference
+            const savedVWAPMode = localStorage.getItem('LWtest_vwapEnabled');
+            if (savedVWAPMode === 'true') {
+                isVWAPEnabled = true;
+                document.getElementById('vwap-checkbox').checked = true;
             }
             
             console.log('DOM loaded, initializing charts');
